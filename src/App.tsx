@@ -53,7 +53,7 @@ function App() {
   useEffect(() => { document.documentElement.classList.add('dark'); }, []);
   return (
     <AuthProvider>
-      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+      <WouterRouter>
         <Router />
       </WouterRouter>
       <Toaster theme="dark" position="bottom-right" className="!font-sans" />
