@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "bianca-studio"
+  },
+  "targets": {
+    "bianca-studio": {
+      "hosting": {
+        "panel": [
+          "bianca-panel"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

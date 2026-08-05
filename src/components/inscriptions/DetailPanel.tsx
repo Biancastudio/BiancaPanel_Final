@@ -1,0 +1,449 @@
+import { useState } from 'react';
+import { Inscription, InscriptionStatus } from '@/types/inscription';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { StatusBadge } from './StatusBadge';
+import { updateInscriptionStatus, deleteInscription } from '@/services/inscriptions';
+import { toast } from 'sonner';
+import {
+  User, MapPin, Gamepad2, Hash, Calendar, Loader2,
+  Mail, Youtube, Clock, Shield, MessageSquare,
+  Joystick, FileText, Trash2,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+
+interface DetailPanelProps {
+  inscription: Inscription | null;
+  open: boolean;
+  onClose: () => void;
+  isSuperadmin?: boolean;
+  onDeleted?: () => void;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const renderDate = (val: string | undefined) => {
+  if (!val) return 'N/A';
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    return format(d, "d 'de' MMMM yyyy, HH:mm", { locale: es });
+  } catch { return String(val); }
+};
+
+const renderBool = (val: unknown): string => {
+  if (val === true  || val === 'true'  || val === 'si' || val === 'sí') return '✅ Sí';
+  if (val === false || val === 'false' || val === 'no')                  return '❌ No';
+  return val != null ? String(val) : 'N/A';
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  nombreCompleto:         'Nombre completo',
+  edad:                   'Edad',
+  pais:                   'País',
+  email:                  'Correo electrónico',
+  usuarioMinecraft:       'Usuario de Minecraft Bedrock',
+  gamertagXbox:           'Gamertag de Xbox',
+  usuarioDiscord:         'Usuario de Discord',
+  idDiscord:              'ID de Discord',
+  canalYoutube:           'Canal de YouTube',
+  tiktok:                 'TikTok',
+  instagram:              'Instagram',
+  horasSemana:            'Horas disponibles por semana',
+  horasDisponibles:       'Horas disponibles por semana',
+  comoConociste:          '¿Cómo conociste MagicLand IV?',
+  comoConocisteMagicland: '¿Cómo conociste MagicLand IV?',
+  comoConocisteMagicLand: '¿Cómo conociste MagicLand IV?',
+  loQueMasGusto:          '¿Qué fue lo que más te gustó de la serie?',
+  queMasGusto:            '¿Qué fue lo que más te gustó de la serie?',
+  queMasTeGusto:          '¿Qué fue lo que más te gustó de la serie?',
+  loMasGusto:             '¿Qué fue lo que más te gustó de la serie?',
+  gustoDeLaSerie:         '¿Qué fue lo que más te gustó de la serie?',
+  serieGusto:             '¿Qué fue lo que más te gustó de la serie?',
+  temporadasAnteriores:   '¿Has visto temporadas anteriores?',
+  vioTemporadas:          '¿Has visto temporadas anteriores?',
+  haVisto:                '¿Has visto temporadas anteriores?',
+  temporadasPrevias:      '¿Has visto temporadas anteriores?',
+  porQueQuieres:          '¿Por qué quieres formar parte de MagicLand IV?',
+  porQueQuieresUnirte:    '¿Por qué quieres formar parte de MagicLand IV?',
+  porQueUnirse:           '¿Por qué quieres formar parte de MagicLand IV?',
+  razonUnirse:            '¿Por qué quieres formar parte de MagicLand IV?',
+  motivacion:             'Motivación para unirse',
+  rolDeseado:             '¿Qué rol te gustaría interpretar?',
+  rol:                    '¿Qué rol te gustaría interpretar?',
+  rolQueDesea:            '¿Qué rol te gustaría interpretar?',
+  aporte:                 '¿Qué podrías aportar a MagicLand IV?',
+  queAportas:             '¿Qué podrías aportar a MagicLand IV?',
+  aportarAlProyecto:      '¿Qué podrías aportar a MagicLand IV?',
+  aporteAlProyecto:       '¿Qué podrías aportar a MagicLand IV?',
+  expectativas:           '¿Qué esperas vivir dentro de MagicLand IV?',
+  queEsperas:             '¿Qué esperas vivir dentro de MagicLand IV?',
+  expectativasEnProyecto: '¿Qué esperas vivir dentro de MagicLand IV?',
+  porQueSeleccionarte:    '¿Por qué crees que deberíamos seleccionarte?',
+  porQueElegirte:         '¿Por qué crees que deberíamos seleccionarte?',
+  porQueDebemosElegirte:  '¿Por qué crees que deberíamos seleccionarte?',
+  proyectosAnteriores:    '¿Has participado en otros proyectos similares?',
+  proyectosSimilares:     '¿Has participado en otros proyectos similares?',
+  otrosProyectos:         '¿Has participado en otros proyectos similares?',
+  participacionAnterior:  '¿Has participado en otros proyectos similares?',
+  haParticipadoAntes:     '¿Has participado en otros proyectos similares?',
+  experienciaMinecraft:   'Experiencia en Minecraft',
+  ayudaProyecto:          '¿Cómo puede ayudar al proyecto?',
+  aceptaReglas:           'Aceptación de reglas y condiciones',
+  aceptaTerminos:         'Aceptación de reglas y condiciones',
+};
+
+const STRUCTURED_KEYS = new Set([
+  'id', 'estado', 'timestamp', 'updatedAt',
+  'nombreCompleto', 'edad', 'pais', 'email',
+  'usuarioMinecraft', 'gamertagXbox',
+  'usuarioDiscord', 'idDiscord',
+  'canalYoutube', 'tiktok', 'instagram',
+  'horasSemana', 'horasDisponibles',
+  'aceptaReglas', 'aceptaTerminos',
+]);
+
+const renderValue = (val: unknown): string => {
+  if (val === null || val === undefined) return '—';
+  if (typeof val === 'boolean') return renderBool(val);
+  if (typeof val === 'object' && val !== null && 'toDate' in val && typeof (val as { toDate: unknown }).toDate === 'function') {
+    return renderDate((val as { toDate: () => Date }).toDate().toISOString());
+  }
+  return String(val).trim() || '—';
+};
+
+const keyToLabel = (key: string): string =>
+  FIELD_LABELS[key] ??
+  key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, (s) => s.toUpperCase())
+    .trim();
+
+const isLongText = (val: unknown): boolean =>
+  typeof val === 'string' && val.length > 60;
+
+const isBoolLike = (val: unknown): boolean =>
+  typeof val === 'boolean' ||
+  (typeof val === 'string' && ['true','false','si','sí','no'].includes(val.toLowerCase().trim()));
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export const DetailPanel = ({ inscription, open, onClose, isSuperadmin = false, onDeleted }: DetailPanelProps) => {
+  const [updatingStatus, setUpdatingStatus] = useState<InscriptionStatus | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  if (!inscription) return null;
+
+  const handleUpdateStatus = async (status: InscriptionStatus) => {
+    if (status === inscription.estado) return;
+    setUpdatingStatus(status);
+    try {
+      await updateInscriptionStatus(inscription.id, status);
+      toast.success(`Estado actualizado a "${status}"`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Error al actualizar el estado');
+    } finally {
+      setUpdatingStatus(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteInscription(inscription.id);
+      toast.success('Inscripción eliminada correctamente');
+      onClose();
+      onDeleted?.();
+    } catch (err) {
+      console.error(err);
+      toast.error('Error al eliminar la inscripción');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const formFields = Object.entries(inscription as Record<string, unknown>)
+    .filter(([key, val]) =>
+      !STRUCTURED_KEYS.has(key) &&
+      val !== null &&
+      val !== undefined &&
+      val !== ''
+    )
+    .map(([key, val]) => ({ key, label: keyToLabel(key), value: val }));
+
+  const hasFormFields = formFields.length > 0;
+  const hasRules = inscription.aceptaReglas != null || inscription.aceptaTerminos != null;
+  const rulesVal = inscription.aceptaReglas ?? inscription.aceptaTerminos;
+
+  return (
+    <Sheet open={open} onOpenChange={(val) => !val && onClose()}>
+      <SheetContent
+        side="right"
+        className="w-[520px] sm:max-w-[95vw] p-0 bg-background border-l border-border flex flex-col h-full gap-0"
+      >
+        {/* Header */}
+        <div className="p-6 border-b border-border bg-card">
+          <div className="flex items-start justify-between mb-2">
+            <div className="min-w-0 pr-4">
+              <p className="text-[11px] text-muted-foreground font-mono mb-1 truncate">ID: {inscription.id}</p>
+              {isSuperadmin ? (
+                <>
+                  <SheetTitle className="text-xl text-white font-bold truncate">
+                    {inscription.nombreCompleto}
+                  </SheetTitle>
+                  {(inscription.edad != null || inscription.pais) && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {[inscription.edad != null ? `${inscription.edad} años` : null, inscription.pais]
+                        .filter(Boolean).join(' — ')}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <SheetTitle className="text-xl text-white font-bold truncate">
+                    Inscripción
+                  </SheetTitle>
+                  {inscription.edad != null && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{inscription.edad} años</p>
+                  )}
+                </>
+              )}
+            </div>
+            <StatusBadge status={inscription.estado} />
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+            <Calendar size={13} />
+            <span>Recibido: {renderDate(inscription.timestamp)}</span>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <ScrollArea className="flex-1 p-6">
+          <div className="space-y-7 pb-6">
+
+            <Section title="Datos personales">
+              {isSuperadmin && (
+                <InfoRow icon={<User size={15} />} label="Nombre completo" value={inscription.nombreCompleto} />
+              )}
+              {inscription.edad != null && (
+                <InfoRow icon={<User size={15} />} label="Edad" value={String(inscription.edad)} />
+              )}
+              {isSuperadmin && (
+                <InfoRow icon={<MapPin size={15} />} label="País" value={inscription.pais} />
+              )}
+              {isSuperadmin && inscription.email && (
+                <InfoRow icon={<Mail size={15} />} label="Correo electrónico" value={inscription.email} />
+              )}
+            </Section>
+
+            <Section title="Plataformas de juego">
+              {isSuperadmin && (
+                <InfoRow icon={<Gamepad2 size={15} />} label="Usuario Minecraft Bedrock" value={inscription.usuarioMinecraft} />
+              )}
+              {isSuperadmin && inscription.gamertagXbox && (
+                <InfoRow icon={<Joystick size={15} />} label="Gamertag de Xbox" value={inscription.gamertagXbox} />
+              )}
+              {(inscription.usuarioDiscord || inscription.idDiscord) && (
+                <InfoRow icon={<Hash size={15} />} label="Usuario de Discord"
+                  value={inscription.usuarioDiscord ?? inscription.idDiscord ?? ''} />
+              )}
+            </Section>
+
+            {isSuperadmin && (inscription.canalYoutube || inscription.tiktok || inscription.instagram) && (
+              <Section title="Redes sociales">
+                {inscription.canalYoutube && (
+                  <InfoRow icon={<Youtube size={15} />}       label="Canal de YouTube" value={inscription.canalYoutube} />
+                )}
+                {inscription.tiktok && (
+                  <InfoRow icon={<MessageSquare size={15} />} label="TikTok"           value={inscription.tiktok} />
+                )}
+                {inscription.instagram && (
+                  <InfoRow icon={<MessageSquare size={15} />} label="Instagram"        value={inscription.instagram} />
+                )}
+              </Section>
+            )}
+
+            {(inscription.horasSemana != null || inscription.horasDisponibles != null) && (
+              <Section title="Disponibilidad">
+                <InfoRow icon={<Clock size={15} />}
+                  label="Horas disponibles por semana"
+                  value={String(inscription.horasSemana ?? inscription.horasDisponibles)} />
+              </Section>
+            )}
+
+            {hasFormFields && (
+              <Section title="Formulario de inscripción">
+                {formFields.map(({ key, label, value }) =>
+                  isBoolLike(value) ? (
+                    <InfoRow key={key} icon={<Shield size={15} />} label={label} value={renderBool(value)} />
+                  ) : isLongText(value) ? (
+                    <LongRow key={key} label={label} value={String(value)} />
+                  ) : (
+                    <InfoRow key={key} icon={<FileText size={15} />} label={label} value={renderValue(value)} />
+                  )
+                )}
+              </Section>
+            )}
+
+            {hasRules && (
+              <Section title="Condiciones">
+                <InfoRow icon={<Shield size={15} />}
+                  label="Aceptación de reglas y condiciones"
+                  value={renderBool(rulesVal)} />
+              </Section>
+            )}
+
+            <Section title="Historial">
+              <div className="bg-card rounded-lg border border-border p-4 text-sm text-muted-foreground space-y-1">
+                <p>Estado actual: <span className="font-semibold text-white">{inscription.estado}</span></p>
+                {inscription.updatedAt && (
+                  <p className="text-xs">Última actualización: {renderDate(inscription.updatedAt)}</p>
+                )}
+              </div>
+            </Section>
+
+          </div>
+        </ScrollArea>
+
+        {/* Action buttons */}
+        <div className="p-4 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/75 space-y-2">
+          <div className="flex gap-3">
+            <ActionButton
+              status="aceptado"
+              currentStatus={inscription.estado}
+              isLoading={updatingStatus === 'aceptado'}
+              onClick={() => void handleUpdateStatus('aceptado')}
+              label="Aceptar"
+              className="bg-emerald-500 text-white hover:bg-emerald-600 border-transparent shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+            />
+            <ActionButton
+              status="pendiente"
+              currentStatus={inscription.estado}
+              isLoading={updatingStatus === 'pendiente'}
+              onClick={() => void handleUpdateStatus('pendiente')}
+              label="Pendiente"
+              className="bg-amber-500 text-white hover:bg-amber-600 border-transparent shadow-[0_0_15px_rgba(245,158,11,0.2)]"
+            />
+            <ActionButton
+              status="rechazado"
+              currentStatus={inscription.estado}
+              isLoading={updatingStatus === 'rechazado'}
+              onClick={() => void handleUpdateStatus('rechazado')}
+              label="Rechazar"
+              className="bg-red-500 text-white hover:bg-red-600 border-transparent shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+            />
+          </div>
+
+          {isSuperadmin && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={deleting}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium border border-red-500/30 text-red-400 hover:bg-red-500/10 hover:border-red-500/60 hover:text-red-300 transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none"
+                  data-testid="btn-delete-inscription"
+                >
+                  {deleting ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={15} />
+                  )}
+                  Eliminar inscripción
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>¿Eliminar esta inscripción?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Estás a punto de eliminar permanentemente la inscripción de{' '}
+                    <span className="font-semibold text-white">{inscription.nombreCompleto}</span>.
+                    Esta acción no se puede deshacer.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => void handleDelete()}
+                    className="bg-red-600 text-white hover:bg-red-700 border-transparent"
+                  >
+                    Sí, eliminar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+};
+
+// ─── Sub-components ────────────────────────────────────────────────────────────
+
+const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <section>
+    <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">{title}</h3>
+    <div className="space-y-2">{children}</div>
+  </section>
+);
+
+const InfoRow = ({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) => (
+  <div className="flex items-center gap-3 p-3 bg-card rounded-md border border-border/50">
+    {icon && <div className="text-muted-foreground flex-shrink-0 bg-background p-1.5 rounded-md">{icon}</div>}
+    <div className="min-w-0">
+      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">{label}</p>
+      <p className="text-sm font-semibold text-white truncate" title={value}>{value || '—'}</p>
+    </div>
+  </div>
+);
+
+const LongRow = ({ label, value }: { label: string; value: string }) => (
+  <div className="p-3 bg-card rounded-md border border-border/50">
+    <p className="text-[11px] text-muted-foreground font-medium mb-1.5">{label}</p>
+    <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">{value || '—'}</p>
+  </div>
+);
+
+const ActionButton = ({
+  status, currentStatus, isLoading, onClick, label, className,
+}: {
+  status: InscriptionStatus;
+  currentStatus: InscriptionStatus;
+  isLoading: boolean;
+  onClick: () => void;
+  label: string;
+  className: string;
+}) => {
+  const isCurrent = currentStatus === status;
+  return (
+    <button
+      onClick={onClick}
+      disabled={isCurrent || isLoading}
+      className={cn(
+        'flex-1 relative flex items-center justify-center gap-2 py-2.5 px-4 rounded-md font-medium text-sm transition-all duration-200 border',
+        className,
+        isCurrent ? 'opacity-100 ring-2 ring-white/20 ring-offset-2 ring-offset-background cursor-default' : 'opacity-90 hover:opacity-100',
+        isLoading && 'opacity-70 pointer-events-none'
+      )}
+      data-testid={`action-btn-${status}`}
+    >
+      {isLoading && <Loader2 size={16} className="animate-spin" />}
+      {!isLoading && <div className="w-1.5 h-1.5 rounded-full bg-white absolute left-3 shadow-[0_0_5px_white]" />}
+      <span>{label}</span>
+    </button>
+  );
+};
+
